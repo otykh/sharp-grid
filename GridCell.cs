@@ -14,9 +14,24 @@ namespace GridCell
         BottomLeft,
         BottomRight,
         TopLeft,
-        TopRight
+        TopRight,
+
+        Left,
+        Right,
+        Top,
+        Bottom
     }
-    public abstract class Cell<T>
+    public abstract class BoidCell<T> : Cell
+    {
+        public BoidCell(Vector2 position, Vector2 size, int maxCellDepth) : base(position, size, maxCellDepth) { }
+        public abstract void AddNewObject(T obj, Vector3 position);
+        public abstract void RemoveObject(T obj, Vector3 position);
+        public abstract bool UpdateObjectPosition(T obj, Vector3 oldPosition, Vector3 newPosition);
+        public abstract T[] ReturnObjectAt(Vector3 position);
+        public abstract T[] ReturnObject();
+        //public abstract Vector3 GetNeighborCell(Vector3 position, Vector2Int direction);
+    }
+    public abstract class Cell
     {
         public Vector2 position { get; }
         public Vector2 size { get; }
@@ -34,117 +49,11 @@ namespace GridCell
         {
             return new Vector3(size.x, 0, size.y);
         }
-        public abstract void AddNewObject(T obj, Vector3 position);
-        public abstract void RemoveObject(T obj, Vector3 position);
-        public abstract bool IsOutOfCell(Vector3 oldPosition, Vector3 newPosition);
-        public abstract T[] ReturnObjects();
-    }
-    public class ObjectCell : Cell<GameObject>
-    {
-        private GameObject[] gameObjects;
-        public ObjectCell(Vector2 position, Vector2 size, int objectLimit, int maxCellDepth) : base(position, size, maxCellDepth)
+        public Vector3 GetCenterPositionInWorld()
         {
-            gameObjects = new GameObject[objectLimit];
+            return new Vector3(centerPosition.x, 0, centerPosition.y);
         }
-        public override void AddNewObject(GameObject obj, Vector3 position)
-        {
-            //@TODO optimise this code
-            //Debug.Log("Adding new object! " + obj.name + " " + gameObjects.Length);
-            for (int i = 0; i < gameObjects.Length; i++)
-            {
-                if (gameObjects[i] is null)
-                {
-                    gameObjects[i] = obj;
-                    return;
-                }
-            }
-            throw new OverloadException<GameObject>(gameObjects);
-        }
-        public override void RemoveObject(GameObject obj, Vector3 position)
-        {
-            //@TODO optimise this code
-            for (int i = 0; i < gameObjects.Length; i++)
-            {
-                if (gameObjects[i] is null) { continue; }
-
-                if (GameObject.ReferenceEquals(gameObjects[i], obj))
-                {
-                    // remove that object
-                    gameObjects[i] = null;
-                    return;
-                }
-            }
-            throw new System.ArgumentException("Obj is not present in the cell, but was kindly asked to be removed!");
-        }
-        public override bool IsOutOfCell(Vector3 oldPosition, Vector3 newPosition)
-        {
-            Vector3 sz = GetSizeInWorld();
-
-            return  centerPosition.x + (sz.x / 2) <= newPosition.x ||
-                    centerPosition.x - (sz.x / 2) > newPosition.x ||
-                    centerPosition.y + (sz.z / 2) <= newPosition.z ||
-                    centerPosition.y - (sz.z / 2) > newPosition.z;
-        }
-        public override GameObject[] ReturnObjects()
-        {
-            return gameObjects;
-        }
-    }
-    public class ParentCell : Cell<GameObject>
-    {
-        private Cell<GameObject>[] cells;
-        public int objectsInChildrenCells;
-        private int objectLimit;
-        private int depthLimit;
-        public static ParentCell CreateSplitCell(Vector2 position, Vector2 size, int objectLimit, int depthLimit, GameObject[] previousObjects)
-        {
-            return new ParentCell(position, size, objectLimit, objectLimit, previousObjects);
-        }
-        public static ParentCell CreateSingleCell(Vector2 position, Vector2 size, int objectLimit, int depthLimit)
-        {
-            return new ParentCell(position, size, objectLimit, depthLimit);
-        }
-        private ParentCell(Vector2 position, Vector2 size, int objectLimit, int depthLimit, GameObject[] previousObjects) : base(position, size, depthLimit)
-        {
-            this.depthLimit = depthLimit;
-            this.objectLimit = objectLimit;
-            objectsInChildrenCells = 0;
-
-            cells = new Cell<GameObject>[4];
-            CreateFourObjectCells(position, size, objectLimit, depthLimit);
-
-            foreach (GameObject obj in previousObjects)
-            {
-                AddNewObject(obj, obj.transform.position);
-            }
-        }
-        private ParentCell(Vector2 position, Vector2 size, int objectLimit, int depthLimit) : base(position, size, depthLimit)
-        {
-            this.depthLimit = depthLimit;
-            this.objectLimit = objectLimit;
-            cells = new Cell<GameObject>[1];
-            CreateSingleObjectCell(position, size, objectLimit, depthLimit);
-        }
-        private void CreateSingleObjectCell(Vector2 position, Vector2 size, int objectLimit, int depthLimit)
-        {
-            cells[0] = new ObjectCell(position, size, objectLimit, depthLimit);
-        }
-        private void CreateFourObjectCells(Vector2 position, Vector2 size, int objectLimit, int depthLimit)
-        {
-            Vector2 smallerCellSize = new Vector2(size.x / 2, size.y / 2);
-            for (int i = 0; i < 4; i++)
-            {
-                float xPosMultimplier = (i + 1) % 2 == 0 ? 1 : 0; // 0 - 0, 1 - 1, 2 - 0, 3 - 1
-                float yPosMultimplier = i > 1 ? 1 : 0;            // 0 - 0, 1 - 0, 2 - 1, 3 - 1
-                cells[i] = new ObjectCell(
-                    new Vector2(position.x + (xPosMultimplier * smallerCellSize.x), position.y + (yPosMultimplier * smallerCellSize.y)),
-                    smallerCellSize,
-                    depthLimit,
-                    objectLimit);
-            }
-        }
-
-        public static Side DetermineSide(Vector3 centerPosition, Vector3 position)
+        public virtual Side DetermineSide(Vector3 centerPosition, Vector3 position)
         {
             if (centerPosition.x <= position.x)
             {
@@ -175,141 +84,97 @@ namespace GridCell
                 }
             }
         }
-        
-        private int GetIndexOfCell(Vector3 position)
+        public virtual bool IsOutOfCell(Vector3 oldPosition, Vector3 newPosition)
         {
-            if (cells.Length > 1)
-            {
-                return (int)DetermineSide(centerPosition, position);
-            }
-            else
-            {
-                return 0;
-            }
+            Vector3 sz = GetSizeInWorld();
+
+            return centerPosition.x + (sz.x / 2) <= newPosition.x ||
+                    centerPosition.x - (sz.x / 2) > newPosition.x ||
+                    centerPosition.y + (sz.z / 2) <= newPosition.z ||
+                    centerPosition.y - (sz.z / 2) > newPosition.z;
         }
-        public void HandleOverload(GameObject[] objects, int overloadedIndex)
+        public virtual Vector3 GetNeighborCell(Vector3 position, Vector2Int direction)
         {
-            if (cells[overloadedIndex].maxCellDepth <= 0) // cannot split
+            Vector3 sz = GetSizeInWorld();
+
+            switch (direction.x)
             {
-                throw new CannotSplitException();
+                case 1:
+                    position.Set(centerPosition.x + (sz.x / 2) + 0.01f, position.y, position.z);
+                    break;
+                case -1:
+                    position.Set(centerPosition.x - (sz.x / 2) - 0.01f, position.y, position.z);
+                    break;
+                default:
+                    break;
+            }
+            switch (direction.y)
+            {
+                case 1:
+                    position.Set(position.x, position.y, centerPosition.y + (sz.z / 2) + 0.01f);
+                    break;
+                case -1:
+                    position.Set(position.x, position.y, centerPosition.y - (sz.z / 2) - 0.01f);
+                    break;
+                default:
+                    break;
             }
 
-            if (cells.Length == 1)
+            return position;
+        }
+    }
+    public abstract class Grid
+    {
+        public Vector3 position { get; protected set; }
+        public int gridCellDepth { get; protected set; }
+        public Vector2 gridCellSize { get; protected set; }
+        //public int objectLimit { get; protected set; }
+        public Vector2Int gridSize { get; protected set; }
+
+        public Grid(Vector3 initialPosition, int gridCellDepth, Vector2 gridCellSize, Vector2Int gridSize)
+        {
+            this.position = initialPosition;
+
+            this.gridCellDepth = gridCellDepth;
+            this.gridCellSize = gridCellSize;
+            //this.objectLimit = objectLimit;
+            this.gridSize = gridSize;
+
+            InstantiateCells();
+        }
+        protected int DeterminePositionInArray(Vector3 objPosition)
+        {
+            int xWholePosition = (int)(Mathf.Floor((objPosition.x - this.position.x) / gridCellSize.x) * gridCellSize.x);
+            int yWholePosition = (int)(Mathf.Floor((objPosition.z - this.position.z) / gridCellSize.y) * gridCellSize.y);
+
+            // If the object added is outside of the grid
+            if (xWholePosition < 0 || xWholePosition > (gridCellSize.x * gridSize.x) || yWholePosition < 0 || yWholePosition > (gridCellSize.y * gridSize.y))
             {
-                ObjectCell overloadedCell = cells[overloadedIndex] as ObjectCell;
-                cells = new Cell<GameObject>[4];
-                CreateFourObjectCells(position, size, objectLimit, depthLimit);
-            }
-            else
-            {
-                ObjectCell overloadedCell = cells[overloadedIndex] as ObjectCell;
-                cells[overloadedIndex] = ParentCell.CreateSingleCell(overloadedCell.position, overloadedCell.size, objectLimit, depthLimit - 1);
+                throw new System.Exception("Object is outside of the Grid");
             }
 
-            objectsInChildrenCells -= objects.Length;
-            foreach (GameObject obj in objects)
-            {
-                AddNewObject(obj, obj.transform.position);
-            }
-        }
-        public void HandleUnderload()
-        {
-            GameObject[] objects = this.GetObjectsFromCellsAndErase();
-            cells = new Cell<GameObject>[1];
-            CreateSingleObjectCell(position, size, objectLimit, depthLimit);
-            objectsInChildrenCells = 0;
+            int xIndex = (int)(xWholePosition / gridCellSize.x);
+            int yIndex = (int)(yWholePosition / gridCellSize.y);
 
-            foreach(GameObject g in objects)
-            {
-                AddNewObject(g, g.transform.position);
-            }
-        }
-        public override void AddNewObject(GameObject obj, Vector3 position)
-        {
-            int arrayIndex = GetIndexOfCell(position);
+            int positionInArray = xIndex + (yIndex * gridSize.x);
 
-            try
-            {
-                cells[arrayIndex].AddNewObject(obj, position);
-                objectsInChildrenCells++;
-            }
-            catch(OverloadException<GameObject> exc)
-            {
-                if (cells[arrayIndex].maxCellDepth <= 0) 
-                {
-                    throw new CannotAddObjectException();
-                }
-                else
-                {
-                    HandleOverload(exc.objectArray, arrayIndex);
-                    AddNewObject(obj, position);
-                }
-            }
+            return positionInArray;
         }
-        public override void RemoveObject(GameObject obj, Vector3 position)
+        protected Vector3 TransformCellPosition(Cell cell)
         {
-            int arrayIndex = GetIndexOfCell(position);
-
-            cells[arrayIndex].RemoveObject(obj, position);
-            objectsInChildrenCells--;
-
-            // if there is not a full ammount of objects in this parent cell that means
-            // that the split is not necessary! Example if there is 3 objects MAX in a cell
-            // then if parent has only 2 that means there is no overload and the 
-            // cells can be merged together to free up the space
-            if (objectsInChildrenCells <= objectLimit && cells.Length > 1)
-            {
-                HandleUnderload();
-            }
+            return new Vector3(cell.centerPosition.x, this.position.y, cell.centerPosition.y);
         }
-        public override bool IsOutOfCell(Vector3 oldPosition, Vector3 newPosition)
-        {
-            int arrayIndex = GetIndexOfCell(oldPosition);
-            return cells[arrayIndex].IsOutOfCell(oldPosition, newPosition);
-        }
-        public int ReturnObjectLimit()
-        {
-            return objectLimit;
-        }
-        public GameObject[] GetObjectsFromCellsAndErase()
-        {
-            List<GameObject> outList = new List<GameObject>();
-            for(int i = 0; i < cells.Length; i++)
-            {
-                // Theoretically this every cell is ObjectCell, since the object limit is the same
-                // for every cell. If this cell has less then limit it always is the only parent
-
-                GameObject[] g = cells[i].ReturnObjects();
-                for (int z = 0; z < g.Length; z++)
-                {
-                    if(g[z] == null) { continue; }
-                    outList.Add(g[z]);
-                }
-            }
-            return outList.ToArray();
-        }
-        public Cell<GameObject>[] ReturnCellsForDebuging()
-        {
-            return cells;
-        }
-        public override GameObject[] ReturnObjects()
-        {
-            if(cells.Length > 1)
-            {
-                throw new System.Exception("This should not be called from a parent object that is a object holder for more then one object cell");
-            }
-            else
-            {
-                return cells[0].ReturnObjects();
-            }
-        }
+        public abstract bool IsOutOfTheCell(Vector3 oldPosition, Vector3 newPosition);
+        public abstract Vector3 GetNeighborPositionAt(Vector3 position, Vector2Int direction);
+        public abstract Vector3 GetNeighborRandomCenterPositionAt(Vector3 position, Vector2Int direction);
+        protected abstract void InstantiateCells();
     }
     public class OverloadException<T> : System.Exception
     {
-        public T[] objectArray;
+        public T[] objects;
         public OverloadException(T[] objects)
         {
-            objectArray = objects;
+            this.objects = objects;
         }
     }
     public class CannotSplitException : System.Exception
@@ -318,4 +183,5 @@ namespace GridCell
     }
     public class DepthLimitReachedException : System.Exception { }
     public class CannotAddObjectException : System.Exception { }
+    public class NotInCellException : System.Exception { }
 }
